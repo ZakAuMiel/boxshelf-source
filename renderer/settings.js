@@ -163,6 +163,10 @@ function mlSub(){const n=(gp("moonlight.apps")||[]).length;return ML.err?{text:M
 async function mlFind(){if(ML.busy||!api.moonlightFind)return;ML.busy="find";bump();try{const r=await api.moonlightFind();if(r&&r.path){sp("moonlight.path",r.path);pending=true;needRescan=true;await save();toast("Found Moonlight")}else toast("Moonlight isn't installed in the usual places: choose it above")}catch(e){toast(errMsg(e))}finally{ML.busy="";bump()}}
 async function mlRefresh(){if(ML.busy||!api.moonlightRefresh)return;ML.busy="list";ML.err="";bump();pending=true;await save();try{const r=await api.moonlightRefresh();const c=await api.getConfig?await api.getConfig().catch(()=>null):null;if(c&&c.moonlight)sp("moonlight.apps",c.moonlight.apps);needRescan=true;toast(`${r&&r.count||0} games from ${gp("moonlight.host")}`)}catch(e){ML.err="Couldn't reach it";toast(errMsg(e))}finally{ML.busy="";bump()}}
 async function mlWake(){if(!api.moonlightWake)return;pending=true;await save();try{const r=await api.moonlightWake();toast(r&&r.ok?"Wake-up sent: give the host a few seconds":"Couldn't send it: check the MAC address")}catch(e){toast(errMsg(e))}}
+// (fork) the interface's language (renderer/i18n.js): kept in this window's storage, applied by reloading the page
+let langT=0;
+const LANG_ROW=()=>({t:"choice",label:"Language",info:"The language of Boxshelf's menus and messages. Automatic follows your system. Boxshelf reloads its screen to switch.",opts:()=>(window.BS_I18N&&BS_I18N.langs)||[["auto","Automatic"],["en","English"]],
+  get:()=>(window.BS_I18N&&BS_I18N.want)||"auto",set:v=>{if(!window.BS_I18N)return;BS_I18N.setLang(v);clearTimeout(langT);langT=setTimeout(async()=>{await save();location.reload()},1600)},d:"auto",nosave:true,ns:true,keys:"language langue français francais french english anglais translation traduction"});
 function build(){
   const perfWhy=window.Perf&&Perf.detect?(()=>{try{const d=Perf.detect();return `Automatic picks ${({high:"High",balanced:"Balanced",low:"Low",handheld:"Handheld"})[d.tier]||d.tier} for this PC${d.why?" ("+d.why+")":""}`}catch{return "Automatic picks for this PC"}})():"Automatic picks for this PC";
   // (1.78) each app on a page of its own (the Apps page was ten rows); its row says how it stands
@@ -448,6 +452,7 @@ function build(){
     A("Forget all phones",()=>asking("phones")?"Press again":"Forget all","Unpairs every phone. Each one has to scan the code again to use Boxshelf.",()=>twice("phones",()=>forgetPhone("all"),"Press again to forget every paired phone"),{when:()=>!!(phone&&phone.phones&&phone.phones.length),warnBtn:()=>asking("phones"),keys:"phone unpair forget"}),
   ]},
   {g:"System",id:"sys",name:"System",ic:"sys",lead:"Startup, folders and housekeeping.",rows:[
+    LANG_ROW(),
     {t:"dyn",fn:deckRows}, // (beta.8) Linux / Steam Deck: Add Boxshelf to Steam
     /* (beta.12) Linux: the desktop's autostart (Desktop Mode on a Steam Deck; Game Mode starts it from the Library) */
     {t:"toggle",label:window.bsPlatform&&bsPlatform.os==="linux"?"Start Boxshelf at login":"Start Boxshelf with Windows",info:window.bsPlatform&&bsPlatform.os==="linux"?"Opens the shelf when you sign in to your desktop (on a Steam Deck: Desktop Mode; in Game Mode start it from your Library).":"Boots straight into the shelf when you sign in. Pair it with Start in fullscreen for a console-style setup.",get:()=>!!(autostart&&autostart.enabled),set:setAutostart,nosave:true,keys:"autostart boot login startup",when:()=>!!api.setAutostart},
@@ -555,7 +560,7 @@ function regroup(S){
   // ---- Accounts (as it was) ----
   {const a=secOf("acct");if(a)out.push({...a,g:"",name:"Accounts"});if(a)a.rows.forEach(r=>used.add(r))}
   // ---- System ----
-  {const rows=[dynOf("sys",0),...all("sys",r=>r.t==="toggle"&&/^Start Boxshelf/.test(r.label||""),"Use Boxshelf as the Home screen","Exit to the device's home screen"),
+  {const rows=[dynOf("sys",0),take("sys","Language"),...all("sys",r=>r.t==="toggle"&&/^Start Boxshelf/.test(r.label||""),"Use Boxshelf as the Home screen","Exit to the device's home screen"),
       M("Kid mode","sys-kid","A PIN for Settings, and only the shelves you choose.","Kid mode keeps Settings, hiding, renaming, box art and Exit behind a PIN, and shows only the shelves you tick. Playing, Details, manuals and the museum work as usual.",[{t:"dyn",fn:kidRows}],
         {ns:true,keys:"kid mode child children parental lock pin guest family",btn:()=>{const k=cfg.ui&&cfg.ui.kid;return k&&k.on?"On":"Off"}}),
       H("Updates"),...all("sys","Beta updates","Check for new betas","What's new","Undo the update's settings changes"),

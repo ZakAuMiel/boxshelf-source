@@ -54,3 +54,4 @@ title.keys
 *.jks
 # the 3D PC model isn't part of the public source (its origin isn't recorded)
 renderer/models/*.glb
+scripts/i18n/missing-fr.txt
