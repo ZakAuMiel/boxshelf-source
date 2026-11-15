@@ -2753,7 +2753,7 @@ function ensureDom(){if(root)return;
 const TINT={spectrum:"#6a5cff",classic:"#7b4dff",keys:"#4f7dff",arcade:"#e04fd0",aurora:"#22c49a",midnight:"#4c5a8c",
   artwork:"#6a5cff",blur:"#7b6cff",cube:"#5a4fd0",blueshift:"#2f6bff",swirl:"#e8662a",oled:"#4c5a8c",forest:"#2f9a62",crt:"#3d8fd6",vhs:"#c23d8a",synth:"#ff4fa8",
   starfield:"#6f8cff",rain:"#5f9cff",sakura:"#ff8fb1",snow:"#8fb8ff",eventhorizon:"#ff9a4a",glasslake:"#3fe0b0",
-  neoncity:"#ff4fc3",deepsea:"#5fdcff",storm:"#8fa6d8",fireflies:"#d8f060",desertnight:"#f0c27a"}; /* (beta.14: the eleven new themes; Pocket and Walnut retired) */
+  neoncity:"#ff4fc3",deepsea:"#5fdcff",storm:"#8fa6d8",fireflies:"#d8f060",desertnight:"#f0c27a",pastelpop:"#c48cf0"}; /* (beta.14: the eleven new themes; Pocket and Walnut retired) */
 function applyTint(){if(!root)return;const id=gp("ui.theme")||"spectrum",c=(window.BS_CUSTOM_THEMES||[]).find(x=>x.id===id);root.style.setProperty("--tint",TINT[id]||(c&&/^#[0-9a-f]{6}$/i.test(c.accent||"")?c.accent:"")||TINT.spectrum)}
 function fit(){if(!stage)return;const u=[1,1.15,1.3].includes(+gp("ui.uiScale"))?+gp("ui.uiScale"):1,safe=Math.max(.9,Math.min(1,(+gp("ui.safeArea")||100)/100));
   // (the handheld: a 6" screen at arm's length, so a quarter bigger again, but never narrower than a 1300-wide page)

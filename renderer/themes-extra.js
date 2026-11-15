@@ -464,6 +464,25 @@
   // a saved theme that has been retired, and the one it now shows (app.js themeId falls back to Spectrum without this)
   window.BS_THEME_RETIRED = { pocket: 'forest', walnut: 'midnight', crt: 'midnight', vhs: 'synth' }; /* (beta.14: CRT and VHS retired too) */
 
+
+  // ---------- (fork) Pastel Pop: a bright, playful pastel sky with glossy bubbles floating up ----------
+  // Built like the CSS themes above (themes-extra.css): two bubble layers rise and sway, a soft glow breathes behind the
+  // shelf; a still frame keeps a few bubbles painted into the backdrop
+  const bubbleTile = (seed, n, h, rr, oo) => { const rnd = seeded(seed); let s = '';
+    for (let i = 0; i < n; i++) { const r = r1(rr[0] + rnd() * (rr[1] - rr[0])), x = Math.round(rnd() * 1600), y = Math.round(r + rnd() * (h - r * 2));
+      s += `<g opacity='${r1(oo[0] + rnd() * (oo[1] - oo[0]))}'><circle cx='${x}' cy='${y}' r='${r}' fill='url(#b)'/><ellipse cx='${r1(x - r * .38)}' cy='${r1(y - r * .42)}' rx='${r1(r * .26)}' ry='${r1(r * .15)}' fill='#fff' fill-opacity='.85' transform='rotate(-35 ${r1(x - r * .38)} ${r1(y - r * .42)})'/></g>`; }
+    return svg(`0 0 1600 ${h}`, `<defs><radialGradient id='b' cx='.4' cy='.38' r='.62'><stop offset='0' stop-color='#fff' stop-opacity='.1'/><stop offset='.7' stop-color='#fff' stop-opacity='.14'/><stop offset='.9' stop-color='#ffe6fb' stop-opacity='.45'/><stop offset='1' stop-color='#fff' stop-opacity='.8'/></radialGradient></defs>${s}`); };
+  const PP_STILL = bubbleTile(201, 14, 900, [10, 46], [.35, .8]);
+  try { const st = document.documentElement.style;
+    st.setProperty('--bs-pp-a', bubbleTile(203, 9, 900, [18, 58], [.55, .95])); st.setProperty('--bs-pp-b', bubbleTile(205, 22, 900, [5, 16], [.35, .7])); } catch {}
+
+  const PASTEL_POP = { id: 'pastelpop', name: 'Pastel Pop', halo: sh => pull(sh, 290, .3), css: true, isNew: true, blurb: 'A bright pastel sky with glossy bubbles floating up', chips: ['Moving', 'Bright', 'Light on performance'],
+    swatch: 'radial-gradient(circle at 24% 66%,rgba(255,255,255,.75) 0 2%,rgba(255,255,255,.18) 5%,transparent 9%),radial-gradient(circle at 70% 34%,rgba(255,255,255,.8) 0 3%,rgba(255,255,255,.2) 7%,transparent 12%),radial-gradient(circle at 84% 76%,rgba(255,255,255,.7) 0 1.5%,transparent 5%),' +
+      'radial-gradient(ellipse 60% 40% at 20% 10%,#ffd1ec,transparent 70%),radial-gradient(ellipse 60% 40% at 90% 90%,#c9f7e6,transparent 70%),linear-gradient(160deg,#8fb6ff,#b79cff 45%,#ff9fd2 80%,#ffc9a8)',
+    tint: sh => ['radial-gradient(ellipse 32% 12% at 50% 77%,rgba(60,30,90,.32),transparent 75%)', `${PP_STILL} 50% 50%/cover no-repeat`,
+      `radial-gradient(ellipse 40% 14% at 50% 56%,${hsl(pull(sh, 300, .35), 90, 88, .55)},transparent 72%)`, 'radial-gradient(ellipse 55% 35% at 12% 8%,rgba(255,214,240,.85),transparent 70%)',
+      'radial-gradient(ellipse 50% 40% at 92% 18%,rgba(190,240,255,.7),transparent 70%)', 'radial-gradient(ellipse 70% 30% at 50% 100%,rgba(200,250,232,.55),transparent 72%)',
+      'linear-gradient(180deg,#86aaf8 0%,#a08ff2 30%,#c89aee 50%,#f2a2d6 66%,#ffc0c4 82%,#ffd7b4 100%)'].join(',') };
   window.BS_EXTRA_THEMES = [
     { id: 'cube', name: 'Cube', halo: sh => sh,
       swatch: `linear-gradient(30deg,#110d2e 12%,transparent 12.5%,transparent 87%,#110d2e 87.5%) 0 0/24px 42px,linear-gradient(150deg,#110d2e 12%,transparent 12.5%,transparent 87%,#110d2e 87.5%) 0 0/24px 42px,linear-gradient(30deg,#110d2e 12%,transparent 12.5%,transparent 87%,#110d2e 87.5%) 12px 21px/24px 42px,linear-gradient(150deg,#110d2e 12%,transparent 12.5%,transparent 87%,#110d2e 87.5%) 12px 21px/24px 42px,linear-gradient(60deg,#2a2366 25%,transparent 25.5%,transparent 75%,#2a2366 75%) 0 0/24px 42px,linear-gradient(60deg,#2a2366 25%,transparent 25.5%,transparent 75%,#2a2366 75%) 12px 21px/24px 42px,#1d1752`,
@@ -606,4 +625,5 @@
         DN_MOON, `${DN_STARS} 0 0/100% 58% no-repeat`, 'linear-gradient(152deg,transparent 30%,rgba(170,170,230,.05) 42%,rgba(200,180,230,.06) 50%,transparent 62%)',
         'linear-gradient(180deg,#02040f 0%,#060d26 30%,#0f1c44 46%,#26346a 54%,#3c4478 58%,#0b0f22 70%,#05070f 100%)'].join(',') }
   ];
+  window.BS_EXTRA_THEMES.push(PASTEL_POP);
 })();

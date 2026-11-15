@@ -229,3 +229,14 @@ body.custom-floor-mirror .floor{opacity:calc(var(--custom-glow,.35)*.7);filter:s
 .platform-android .bss-row>.bss-tiles .bss-tile{height:70px;border-radius:6px;opacity:.72}
 .platform-android .bss-row>.bss-tiles .bss-tile.on{opacity:1}
 .platform-android .bss-row>.bss-tiles .bss-tile span{font-size:14.5px;padding:14px 8px 6px}
+
+/* (fork) Pastel Pop (themes-extra.js): big bubbles close by and small ones far off rise and sway; a pastel glow behind the
+   shelf breathes. Still at Handheld / Low and with Reduce motion like the others (the backdrop has bubbles of its own) */
+body.theme-pastelpop .bg-layer img{opacity:0}
+body.theme-pastelpop .floor{opacity:.22}
+body.theme-pastelpop #themeFx{display:block}
+body.theme-pastelpop #themeFx i{will-change:transform}
+body.theme-pastelpop #themeFx i:nth-child(-n+2){left:-5%;top:0;width:110%;height:200%}
+body.theme-pastelpop #themeFx i:nth-child(1){background:var(--bs-pp-b) 0 0/100% 50% repeat-y;opacity:.8;animation:bsTxRise 90s linear infinite,bsTxSway 11s ease-in-out -4s infinite alternate-reverse}
+body.theme-pastelpop #themeFx i:nth-child(2){background:var(--bs-pp-a) 0 0/100% 50% repeat-y;animation:bsTxRise 55s linear -20s infinite,bsTxSway 8s ease-in-out infinite alternate}
+body.theme-pastelpop #themeFx i:nth-child(3){left:18%;top:36%;width:64%;height:30%;background:radial-gradient(closest-side,rgba(255,236,250,.35),transparent);animation:bsTxBreathe 12s ease-in-out infinite}
