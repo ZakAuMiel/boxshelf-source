@@ -156,6 +156,13 @@ function openLink(url){if(api.openExternal)Promise.resolve(api.openExternal(url)
 function twice(key,run,msg){const t=Date.now();if(askT[key]&&t-askT[key]<4000){askT[key]=0;run()}else{askT[key]=t;toast(msg||"Press again to confirm");setTimeout(()=>{if(askT[key]===t){askT[key]=0;bump()}},4100)}bump()}
 const asking=key=>askT[key]&&Date.now()-askT[key]<4000;
 
+// (fork) Streaming: Find Moonlight, the host's games now, wake it (the settings are saved first: main reads them)
+const ML={busy:""};
+const mlOn=()=>gp("moonlight.enabled")===true;
+function mlSub(){const n=(gp("moonlight.apps")||[]).length;return ML.err?{text:ML.err,cls:"bad"}:n?{text:`${n} app${n===1?"":"s"} on the host`,cls:"ok"}:{text:"Not asked yet"}}
+async function mlFind(){if(ML.busy||!api.moonlightFind)return;ML.busy="find";bump();try{const r=await api.moonlightFind();if(r&&r.path){sp("moonlight.path",r.path);pending=true;needRescan=true;await save();toast("Found Moonlight")}else toast("Moonlight isn't installed in the usual places: choose it above")}catch(e){toast(errMsg(e))}finally{ML.busy="";bump()}}
+async function mlRefresh(){if(ML.busy||!api.moonlightRefresh)return;ML.busy="list";ML.err="";bump();pending=true;await save();try{const r=await api.moonlightRefresh();const c=await api.getConfig?await api.getConfig().catch(()=>null):null;if(c&&c.moonlight)sp("moonlight.apps",c.moonlight.apps);needRescan=true;toast(`${r&&r.count||0} games from ${gp("moonlight.host")}`)}catch(e){ML.err="Couldn't reach it";toast(errMsg(e))}finally{ML.busy="";bump()}}
+async function mlWake(){if(!api.moonlightWake)return;pending=true;await save();try{const r=await api.moonlightWake();toast(r&&r.ok?"Wake-up sent: give the host a few seconds":"Couldn't send it: check the MAC address")}catch(e){toast(errMsg(e))}}
 function build(){
   const perfWhy=window.Perf&&Perf.detect?(()=>{try{const d=Perf.detect();return `Automatic picks ${({high:"High",balanced:"Balanced",low:"Low",handheld:"Handheld"})[d.tier]||d.tier} for this PC${d.why?" ("+d.why+")":""}`}catch{return "Automatic picks for this PC"}})():"Automatic picks for this PC";
   // (1.78) each app on a page of its own (the Apps page was ten rows); its row says how it stands
@@ -181,6 +188,21 @@ function build(){
       {when:rlCan,ns:true,keys:"rocketlauncher rocket launcher hyperspin fade bezel pause",sub:rlSub}),
     C("Start games through RocketLauncher","rocket.mode",[["off","Off"],["all","Every console"],["some","Only the consoles I choose"]],"off","Every console: each console RocketLauncher has a system for starts through it, the rest keep their emulator. Only the consoles I choose: pick on each console's page. Off: Boxshelf starts your emulators itself.",{when:()=>rlCan()&&rlHave(),keys:"rocketlauncher hyperspin start games"}),
     C("Front end RocketLauncher is told","rocket.frontend",[["","Its default"],["HyperSpin","HyperSpin"],["LaunchBox","LaunchBox"],["Playnite","Playnite"],["RocketLauncherUI","RocketLauncherUI"]],"","Whose settings and media RocketLauncher uses for its fade and pause screens. Its default: the front end set in RocketLauncherUI.",{when:rlOn,keys:"rocketlauncher plugin frontend hyperspin launchbox"}),
+  ]},
+  // (fork) Streaming shelf (main/moonlight.js): games from another PC through Moonlight, a Sunshine host paired once in Moonlight
+  {g:"Games",id:"streaming",name:"Streaming",ic:"pc",lead:"Games from your other PC, streamed with Moonlight: each app your Sunshine host offers gets a case on a Streaming shelf. Pair the PC once in Moonlight's own window first.",rows:[
+    T("Show the Streaming shelf","moonlight.enabled",false,"Adds a Streaming shelf with the games your host PC offers. Playing one opens Moonlight fullscreen; quitting it brings you back to the shelf.",{rescan:true,keys:"moonlight sunshine stream streaming remote host gamestream"}),
+    X("Host PC","moonlight.host","The name or IP address of the PC that runs Sunshine, as Moonlight shows it (like 192.168.1.20).",{ph:"192.168.1.20",rescan:true,when:mlOn,keys:"moonlight host ip sunshine pc"}),
+    F("Moonlight","moonlight.path","file","Found automatically. Point to Moonlight (Moonlight.exe, moonlight, or its Flatpak or AppImage) if it's somewhere unusual.",{ph:"Not found",rescan:true,want:"file",when:mlOn,keys:"moonlight program exe flatpak appimage"}),
+    A("Find Moonlight",()=>ML.busy==="find"?"Searching…":"Search","Looks in the usual install places: the installer's folder, your packages, the Flatpak and ~/Applications.",mlFind,{when:mlOn,ns:true,keys:"moonlight find detect"}),
+    A("Get the games from the host",()=>ML.busy==="list"?"Asking…":"Refresh","Asks the host PC for its list of games now (it's also asked by itself every few minutes). Wake it first if it's asleep.",mlRefresh,{when:()=>mlOn()&&!!gp("moonlight.host"),ns:true,keys:"moonlight refresh list games apps sunshine",sub:mlSub}),
+    H("Waking the host",{when:mlOn}),
+    X("Host's MAC address","moonlight.mac","Its network card's address (like AA:BB:CC:DD:EE:FF), to wake it with Wake-on-LAN before a game. Leave empty if it's always on.",{ph:"AA:BB:CC:DD:EE:FF",when:mlOn,keys:"wake on lan wol mac address"}),
+    A("Wake the host now","Wake","Sends the wake-up packet to the host PC. Wake-on-LAN has to be turned on in its BIOS and network card settings.",mlWake,{when:()=>mlOn()&&!!gp("moonlight.mac"),ns:true,keys:"wake on lan wol"}),
+    H("Stream",{when:mlOn}),
+    C("Resolution","moonlight.resolution",[["","Moonlight's setting"],["1280x720","720p"],["1920x1080","1080p"],["2560x1440","1440p"],["3840x2160","4K"]],"","The picture size the host sends. Moonlight's setting: whatever you chose in Moonlight's own window.",{rescan:true,when:mlOn,keys:"resolution 1080p 720p 4k"}),
+    C("Frame rate","moonlight.fps",[[0,"Moonlight's setting"],[30,"30 fps"],[60,"60 fps"],[90,"90 fps"],[120,"120 fps"]],0,"Frames per second the host sends.",{rescan:true,when:mlOn,keys:"fps frame rate 60 120"}),
+    T("Close the game on the host after","moonlight.quitAfter",false,"When you quit the stream, the game is closed on the host PC too, instead of staying open there.",{rescan:true,when:mlOn,keys:"quit after close host"})
   ]},
   {g:"Games",id:"pc",name:"PC games",ic:"pc",lead:"The games your stores have installed (Steam, Epic, GOG and more), on a shelf of their own. Playnite, decomps and ports: Custom games.",rows:[
     T("Show installed Steam games","steam.enabled",true,"Adds a PC shelf with every game Steam has installed. Uninstalled games are left out.",{rescan:true,keys:"steam"}),
@@ -483,10 +505,11 @@ function regroup(S){
     const rows=[{t:"dyn",fn:attnRows},take("consoles",r=>r.t==="consoles"),H("Your games"),take("sys","Rescan games"),
       pc?M("PC games","lib-pc","Steam, Epic, GOG, Ubisoft, EA and Xbox: which stores' games go on the PC shelf.",pc.lead,whole("pc"),{keys:"steam epic gog ubisoft ea xbox game pass store pc",ns:true}):null,
       cu?M("Custom games","lib-custom","Decomps and recomps, PC ports, Playnite and Quiver Launcher games, any program: the Custom shelf.",cu.lead,whole("custom"),{keys:"custom decomp recomp port playnite quiver program exe add games",ns:true}):null,
+      secOf("streaming")?M("Streaming","lib-streaming","Games from your other PC through Moonlight, on a Streaming shelf.",secOf("streaming").lead,whole("streaming"),{keys:"moonlight sunshine stream streaming remote host",ns:true}):null,
       ap&&ap.rows.length?M("Media apps","lib-apps","Stremio and Nuvio on the Media shelf.",ap.lead,whole("apps"),{keys:"stremio nuvio media apps",ns:true}):null,
       take("shelf","My shelves"),take("shelf","Console order"),take("art","Hidden games")];
     const mo=more("consoles",[take("consoles","Find emulators again"),take("consoles","RocketLauncher"),take("consoles","Start games through RocketLauncher"),take("consoles","Front end RocketLauncher is told"),take("display","Seamless play"),...rest("consoles")]);
-    out.push({g:"",id:"consoles",name:"Library",ic:"games",alias:["pc","custom","apps","library"],badge:(secOf("consoles")||{}).badge,dot:()=>attnList().some(x=>!x.tip)?"warn":null,
+    out.push({g:"",id:"consoles",name:"Library",ic:"games",alias:["pc","custom","apps","streaming","library"],badge:(secOf("consoles")||{}).badge,dot:()=>attnList().some(x=>!x.tip)?"warn":null,
       lead:"Your consoles, their emulators and your games: where Boxshelf finds them and what goes on the shelves.",rows:[...rows,mo].filter(Boolean)})}
   // ---- Look ----
   {const rows=[...all("display","Theme","Keep themes moving while you scroll","Custom themes","Interface size","Clock","Startup animation","Bottom screen","Text size"),
@@ -542,9 +565,9 @@ function regroup(S){
     const mo=more("sys",[...all("sys","Advanced","About"),...rest("sys")]);
     out.push({g:"",id:"sys",name:"System",ic:"sys",alias:["system","startup"],lead:"Updates, help, and your settings themselves.",rows:[...rows,mo,quit?H(""):null,quit].filter(Boolean)})}
   // ---- anything not placed (a section this list doesn't know): kept as its own tab ----
-  for(const s of S)if(s&&!["consoles","pc","custom","apps","display","perf","sound","art","previews","reading","pad","phone","shelf","museum","acct","sys"].includes(s.id))out.push({...s,g:""});
+  for(const s of S)if(s&&!["consoles","pc","custom","apps","streaming","display","perf","sound","art","previews","reading","pad","phone","shelf","museum","acct","sys"].includes(s.id))out.push({...s,g:""});
   // the old tabs that became a page of their own: their deep links open that page
-  RG_SUB={pc:"lib-pc",steam:"lib-pc",epic:"lib-pc",custom:"lib-custom",quiver:"lib-custom",apps:"lib-apps",media:"lib-apps",phone:"pad-phone",reading:"media-reading",magazines:"media-reading",guides:"media-reading"};
+  RG_SUB={pc:"lib-pc",steam:"lib-pc",epic:"lib-pc",custom:"lib-custom",quiver:"lib-custom",apps:"lib-apps",streaming:"lib-streaming",moonlight:"lib-streaming",media:"lib-apps",phone:"pad-phone",reading:"media-reading",magazines:"media-reading",guides:"media-reading"};
   return out}
 /* (beta.14) Library's Needs attention: what's keeping a game off the shelf or a feature from working, each with its fix */
 function attnList(){const L=[];
