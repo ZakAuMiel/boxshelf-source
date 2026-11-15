@@ -33,6 +33,7 @@ const ownTitle = id => { const o = cfg && cfg.games && cfg.games[String(id)]; re
 const { scanSteamSafe, steamRoot, isMainSteam, steamAnswers } = require('./main/steam');
 const steamart = require('./main/steamart');
 const pcgames = require('./main/pcgames'); // (beta.4) Epic, Quiver Launcher and games added by hand
+const moonlight = require('./main/moonlight'); // (fork) Streaming shelf: games from another PC through Moonlight
 const pccovers = require('./main/pccovers'); // (beta.5) choosing a PC game's cover (SteamGridDB, Steam's own, your own)
 const wiiumanual = require('./main/wiiumanual');
 const manualcoll = require('./main/manualcoll');
@@ -201,6 +202,7 @@ function log(...a) {
 process.on('uncaughtException', e => log('ERROR', e && e.stack || e));
 process.on('unhandledRejection', e => log('ERROR', e && e.stack || e));
 log('Starting Boxshelf', app.getVersion());
+moonlight.init({ log }); // (fork)
 if (linux.isLinux) { steamdeck.init({ log }); linuxpad.init({ log }); const d = steamdeck.info(); log('Linux start:', d.deck ? 'Steam Deck' : 'PC', '| started by Steam:', d.steam, '| Game Mode:', d.gameMode, '| options:', d.flags.join(' ') || 'none'); }
 
 // Only one Boxshelf at a time: a second launch brings the first one forward.
@@ -731,7 +733,11 @@ async function buildLibrary() {
   if (pc.quiver !== false) try { mine.push(...pcgames.quiverGames(pc.quiverPath)); } catch (e) { log('Quiver library', e.message); }
   try { mine.push(...pcgames.customGames(pc.custom)); } catch (e) { log('Custom games', e.message); }
   for (const g of [...epic, ...mine]) { const t = ownTitle(g.id); if (t) { g.fileTitle = g.title; g.title = t; } } // (beta.5: renamed in Details)
-  pcgames.remember([...epic, ...mine]);
+  // (fork) the Streaming shelf: the host's apps from the last refresh (a fresh list is asked for in the background)
+  let streamed = []; try { streamed = moonlight.games(cfg.moonlight); } catch (e) { log('Streaming', e.message); }
+  for (const g of streamed) { const t = ownTitle(g.id); if (t) { g.fileTitle = g.title; g.title = t; } }
+  pcgames.remember([...epic, ...mine, ...streamed]);
+  moonlightRefreshSoon();
   // (Steam art by title only for Epic's store games: a recomp or a program added by hand often shares its name with an
   // unrelated Steam game, "Quarantine" got a puzzle game's cover; they keep the made-up case)
   const pcGame = g => { const sid = STORE_SRC.has(g.source) ? pcgames.steamIdOf(g.title) : null, l = sid ? steamart.local(sid) : {};
@@ -742,6 +748,7 @@ async function buildLibrary() {
   if (epic.length || toPc.length) pcShelf = pcShelf.concat([...epic, ...toPc].map(pcGame)).sort((a, b) => String(a.title).localeCompare(String(b.title), undefined, { sensitivity: 'base' }));
   if (pcShelf.length) shelves.push({ id: 'pc', kind: 'steam', name: 'PC', games: pcShelf });
   if (onCustom.length) shelves.push({ id: 'custom', kind: 'steam', name: 'Custom', games: onCustom.map(pcGame).sort((a, b) => String(a.title).localeCompare(String(b.title), undefined, { sensitivity: 'base' })) });
+  if (streamed.length) shelves.push({ id: 'streaming', kind: 'steam', name: 'Streaming', games: streamed.map(g => ({ kind: 'steam', source: 'moonlight', id: g.id, title: g.title, art: { front: fileUrl(pccovers.cover(g.id) || g.cover) } })).sort((a, b) => String(a.title).localeCompare(String(b.title), undefined, { sensitivity: 'base' })) });
   const apps = [];
   for (const a of APPS) { const c = cfg.apps[a.id]; if (!c || !c.enabled || !c.path) continue; apps.push({ kind: 'app', id: 'app-' + a.id, appId: a.id, title: a.name, path: c.path, art: { icon: fileUrl(await iconQuick(c.path)) } }); }
   if (apps.length) shelves.push({ id: 'media', kind: 'apps', name: 'Media', games: apps });
@@ -1890,6 +1897,27 @@ const STORE_NAME = { epic: 'Epic Games', ubisoft: 'Ubisoft', ea: 'EA', xbox: 'Xb
 // (beta.4) a PC game that isn't Steam's, named by id only: Epic's go through its launcher's link; Quiver's and the ones
 // added by hand start their own program in its own folder (recomps read their files from there), with the Home menu and
 // the quit buttons like any app
+// ---------- (fork) Streaming: Moonlight's app list ----------
+// asked for at most every 10 minutes while the shelf is built, and on demand from Settings; a changed list is saved and the
+// shelf refreshes. Moonlight not found yet: the usual places are looked at once, and a find is kept
+let mlLast = 0, mlBusy = null, mlLooked = false;
+async function moonlightRefresh(force) {
+  const c = cfg.moonlight; if (!c || !c.enabled || !c.host) return { apps: [] };
+  if (!c.path && !mlLooked) { mlLooked = true; const f = moonlight.find(); if (f) { cfg = persistCfg(config.normalize({ ...cfg, moonlight: { ...cfg.moonlight, path: f } })); log('Streaming: found Moonlight at', f); } }
+  if (mlBusy) return mlBusy;
+  if (!force && Date.now() - mlLast < 10 * 60 * 1000) return { apps: cfg.moonlight.apps };
+  mlLast = Date.now();
+  mlBusy = moonlight.list({ exe: cfg.moonlight.path, host: cfg.moonlight.host, env: process.platform === 'linux' ? launcher.cleanEnv(process.env) : undefined }).then(apps => {
+    const before = JSON.stringify(cfg.moonlight.apps), next = config.normalize({ ...cfg, moonlight: { ...cfg.moonlight, apps } });
+    if (JSON.stringify(next.moonlight.apps) !== before) { cfg = persistCfg(next); scanCfg = null; log('Streaming:', apps.length, 'apps from', cfg.moonlight.host); if (alive()) win.webContents.send('library:changed', { streaming: 1 }); }
+    return { apps: cfg.moonlight.apps };
+  }).finally(() => { mlBusy = null; });
+  return mlBusy;
+}
+function moonlightRefreshSoon() { if (!cfg.moonlight || !cfg.moonlight.enabled || launcher.isRunning()) return; setTimeout(() => moonlightRefresh(false).catch(e => log('Streaming:', e.message)), 1500); }
+handle('moonlight:find', () => ({ path: moonlight.find() }));
+handle('moonlight:refresh', async () => { const r = await moonlightRefresh(true); return { count: (r.apps || []).length }; });
+handle('moonlight:wake', async () => ({ ok: await moonlight.wake(cfg.moonlight.mac) }));
 handle('launch:pc', async ({ id }) => { coversForGame(); /* (beta.14) */
   const g = pcgames.byId(id); if (!g) throw new Error("That game isn't on the shelf any more. The shelf is refreshing; try again in a moment.");
   // (beta.12) Seamless play on: a store game (Epic, Ubisoft, EA, Xbox) is still started through its store, and watched
@@ -1903,9 +1931,10 @@ handle('launch:pc', async ({ id }) => { coversForGame(); /* (beta.14) */
     const p = spawn('explorer.exe', ['shell:AppsFolder\\' + g.shellApp], { detached: true, stdio: 'ignore' }); p.on('error', e => log('Xbox launch', e.message)); p.unref(); return { external: true }; }
   if (!paths.isFile(g.exe)) throw new Error(`${g.title} isn't at ${g.exe} any more. ${g.source === 'quiver' ? 'Check it in Quiver Launcher.' : g.source === 'gog' ? 'Check it in GOG Galaxy.' : 'Remove it in Settings → Custom games and add it again.'}`);
   busyCheck();
+  if (g.source === 'moonlight' && cfg.moonlight.mac) { const ok = await moonlight.wake(cfg.moonlight.mac); log('Streaming: wake-on-LAN', ok ? 'sent' : 'not sent'); } // (fork) Moonlight then waits for the host to show up
   launching = true; try { await taskbarHide(); } finally { launching = false; } // (beta.6)
   let r; try { r = launcher.launchApp(g.exe, onExit, launcher.buildArgs(g.args || '', '')); } catch (e) { taskbarShow('the game did not start'); throw e; } runKind = 'app'; pendingPower = null; launcher.setRunningName(g.title); log('PC launch:', g.source, g.title);
-  if (cfg.ui.homeMenu !== false) homemenu.begin({ systemId: 'pc', exe: g.exe, systemName: g.source === 'quiver' ? 'Quiver' : g.source === 'gog' ? 'GOG' : 'Custom', title: g.title, hotkeys: {} });
+  if (cfg.ui.homeMenu !== false) homemenu.begin({ systemId: 'pc', exe: g.exe, systemName: g.source === 'quiver' ? 'Quiver' : g.source === 'gog' ? 'GOG' : g.source === 'moonlight' ? 'Streaming' : 'Custom', title: g.title, hotkeys: {} });
   if (seamless.on()) historyTrack(g.id); // (beta.12, Seamless play: its playtime too)
   watchPad({ mouse: false, appPid: r.pid, fullscreenKey: null, home: true });
   return { ...r, cover: coverWhileStarting(10) };
@@ -1921,7 +1950,7 @@ const pcCoverBump = id => { const f = id && pccovers.cover(id); if (f) artBump(f
 const pcCoverChanged = id => { pcCoverBump(id); scanCfg = null; clearTimeout(pcCoverT); pcCoverT = setTimeout(() => { if (alive()) win.webContents.send('library:changed', { pcCover: 1 }); }, 700); };
 // (beta.9) the games that never get an automatic cover (Quiver's, and programs added by hand or from Playnite: their
 // names often match an unrelated game) and have none chosen yet: the batch cover finder's list
-handle('pccover:missing', () => pcgames.all().filter(g => (g.source === 'custom' || g.source === 'quiver') && !pccovers.cover(g.id)).map(g => ({ id: g.id, title: g.title, source: g.source })));
+handle('pccover:missing', () => pcgames.all().filter(g => (g.source === 'custom' || g.source === 'quiver' || (g.source === 'moonlight' && !g.cover)) && !pccovers.cover(g.id)).map(g => ({ id: g.id, title: g.title, source: g.source })));
 handle('pccover:options', ({ id, term }) => { const g = pcGameOf(id), t = String(term || '').replace(/\s+/g, ' ').trim().slice(0, 120);
   return pccovers.options(t ? { id: g.id, title: t, term: true } : g); }); // (beta.5: term = Search by name, a title instead of the game's own / its Steam app)
 handle('pccover:use', async ({ id, key }) => { pcGameOf(id); await pccovers.use(id, key); pcCoverChanged(id); return { ok: true }; });

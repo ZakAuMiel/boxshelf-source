@@ -60,6 +60,8 @@ contextBridge.exposeInMainWorld('boxshelf', {
   onTvFound: cb => ipcRenderer.on('tv:found', (e, x) => cb(x)),
   launchSteam: appid => call('launch:steam', { appid }),
   launchPc: id => call('launch:pc', { id }), // (beta.4) Epic, Quiver and hand-added games, by id
+  // (fork) Streaming shelf through Moonlight
+  moonlightFind: () => call('moonlight:find'), moonlightRefresh: () => call('moonlight:refresh'), moonlightWake: () => call('moonlight:wake'),
   findQuiver: () => call('pc:findQuiver'),
   pcStatus: () => call('pc:status'),
   // (beta.5) a PC game's cover picker
