@@ -18,6 +18,9 @@ const LIBRETRO = { gc: 'Nintendo - GameCube', wii: 'Nintendo - Wii', psp: 'Sony 
 const LAUNCHBOX = { gc: 'Nintendo GameCube', wii: 'Nintendo Wii', psp: 'Sony PSP', wiiu: 'Nintendo Wii U', sw: 'Nintendo Switch', sw2: 'Nintendo Switch 2', ps3: 'Sony Playstation 3', ps4: 'Sony Playstation 4', ps5: 'Sony Playstation 5', ps2: 'Sony Playstation 2', x360: 'Microsoft Xbox 360', n3ds: 'Nintendo 3DS', xbox: 'Microsoft Xbox',
   // (beta.6) the retro shelves: LaunchBox's own platform names (the index rebuilds once to take them in)
   psx: 'Sony Playstation', nes: 'Nintendo Entertainment System', snes: 'Super Nintendo Entertainment System', n64: 'Nintendo 64', gb: 'Nintendo Game Boy', gbc: 'Nintendo Game Boy Color', gba: 'Nintendo Game Boy Advance', nds: 'Nintendo DS', megadrive: 'Sega Genesis', mastersystem: 'Sega Master System', gamegear: 'Sega Game Gear', dreamcast: 'Sega Dreamcast', saturn: 'Sega Saturn', pcengine: 'NEC TurboGrafx-16', neogeo: 'SNK Neo Geo AES', arcade: 'Arcade', segacd: 'Sega CD', sega32x: 'Sega 32X', atari2600: 'Atari 2600', atarilynx: 'Atari Lynx', wonderswan: 'WonderSwan', dos: 'MS-DOS' };
+// (fork) LaunchBox's PC games too: the back of a PC game's box (pcBack)
+const LB_PC = 'Windows';
+const LB_PLATS = () => [...Object.values(LAUNCHBOX), LB_PC];
 const IDX_V = 8; // 8: full box wraps (Box - Full) indexed too, to cut spines from
 const LB_ZIP = 'https://gamesdb.launchbox-app.com/Metadata.zip';
 const LB_IMG = 'https://images.launchbox-app.com/';
@@ -353,8 +356,8 @@ function launchboxIndex(progress, signal) {
 async function launchboxIndex0(progress, signal) {
   const idxFile = path.join(cacheDir, 'launchbox-index.json');
   { const m = shardMeta() || (isFile(idxFile) ? await splitShards() : null);
-    if (m && m.v === IDX_V && Date.now() - m.at < IDX_DAYS * 864e5 && Object.values(LAUNCHBOX).every(p => m.plats.includes(p))) { const x = path.join(cacheDir, 'Metadata.xml'); if (isFile(x)) removeXml(x); return lazyIndex(m); } }
-  try { const c = JSON.parse(fs.readFileSync(idxFile, 'utf8')); if (c.v === IDX_V && Date.now() - c.at < IDX_DAYS * 864e5 && Object.values(LAUNCHBOX).every(p => Array.isArray(c.games[p]))) { const x = path.join(cacheDir, 'Metadata.xml'); if (isFile(x)) removeXml(x); return c; } if (c.v === IDX_V) log('LaunchBox: index is missing a platform, rebuilding'); else log('LaunchBox: index format changed, rebuilding'); } catch {}
+    if (m && m.v === IDX_V && Date.now() - m.at < IDX_DAYS * 864e5 && LB_PLATS().every(p => m.plats.includes(p))) { const x = path.join(cacheDir, 'Metadata.xml'); if (isFile(x)) removeXml(x); return lazyIndex(m); } }
+  try { const c = JSON.parse(fs.readFileSync(idxFile, 'utf8')); if (c.v === IDX_V && Date.now() - c.at < IDX_DAYS * 864e5 && LB_PLATS().every(p => Array.isArray(c.games[p]))) { const x = path.join(cacheDir, 'Metadata.xml'); if (isFile(x)) removeXml(x); return c; } if (c.v === IDX_V) log('LaunchBox: index is missing a platform, rebuilding'); else log('LaunchBox: index format changed, rebuilding'); } catch {}
   const zip = path.join(cacheDir, 'Metadata.zip');
   const xml = path.join(cacheDir, 'Metadata.xml');
   if (isFile(xml) && Date.now() - fs.statSync(xml).mtimeMs < 30 * 864e5) { if (xmlWhole(xml)) return finishIndex(xml, idxFile, progress, signal); log('LaunchBox: Metadata.xml is cut off, downloading it again'); } // (beta.10: a cut-off one isn't trusted)
@@ -376,14 +379,14 @@ async function finishIndex(xml, idxFile, progress, signal) {
   progress({ stage: 'Reading the game database… 0%', phase: 'read', pct: 0 });
   const onPct = pct => progress({ stage: `Reading the game database… ${pct}%`, phase: 'read', pct });
   let counts;
-  try { counts = await buildInWorker(xml, idxFile, Object.values(LAUNCHBOX), IDX_V, onPct, signal); }
+  try { counts = await buildInWorker(xml, idxFile, LB_PLATS(), IDX_V, onPct, signal); }
   catch (e) {
     if (e && e.code === 'cancelled') { removeXml(xml); throw e; } // the index file on disk is still the old one: the worker only renames when done
     // only when there's no worker at all (e.g. inside a packed build) is this thread worth a try: after a worker
     // error (out of memory above all) the same job here would take the whole app down with it
     if (!e || !e.workerUnavailable) throw e;
     log('LaunchBox: index worker unavailable (' + e.message + '), reading here');
-    const idx0 = await buildLaunchboxIndex(xml, onPct, Object.values(LAUNCHBOX), IDX_V);
+    const idx0 = await buildLaunchboxIndex(xml, onPct, LB_PLATS(), IDX_V);
     fs.writeFileSync(idxFile, JSON.stringify(idx0)); counts = Object.entries(idx0.games).map(([k, v]) => `${k}=${v.length}`).join(', ');
   }
   log('LaunchBox: index built', counts);
@@ -848,6 +851,23 @@ function hasInfo() { return idxStamp() > 0; } // cheap: never parses the index j
 
 // the index, built (downloaded) if it has to be: Art Studio's "build the LaunchBox index" button
 async function buildIndex(progress) { if (lbOverride) return true; await launchboxIndex(progress || (() => {})); return true; }
-module.exports = { _setIndex: x => { lbOverride = x; }, LAUNCHBOX, LIBRETRO, init, matchTitle, matchName, lookupNames, sgMatch, setSpineCutter, setCartMaker, makeCart, CART_SYS, discId, downloadCovers, coverage, cancel, pause, isPaused, isImageBuf, HD_MIN, gameInfo, flushInfoCache, hasInfo, invalidateInfo, norm, launchboxMatch, libretroMatch, pickImages,
+// (fork) the back of a PC game's box from LaunchBox's database: its Windows games first, then any console's game of exactly
+// that name (a PC port of a console game, a recomp kept on Custom). dest0: the file to write, without its extension.
+// { file, name } | { miss: true } | { err }
+async function pcBack(title, dest0) {
+  let idx = readyIndex(); if (!idx) { try { idx = await launchboxIndex(); } catch (e) { return { err: e.message }; } }
+  if (!idx || !title) return { err: 'LaunchBox database not ready' };
+  const backs = g => ((idx.images && idx.images[g.id]) || []).filter(i => /^Box - Back/.test(i.type)).length;
+  let hit = null; const w = idx.games[LB_PC]; if (w) { const h = matchName(w, title, backs); if (h && backs(h)) hit = h; }
+  if (!hit) { const want = lookupNames(title); for (const p of Object.values(LAUNCHBOX)) { const l = idx.games[p]; if (!l) continue;
+    for (const t of want) { const h = matchTitle(l, t, backs, true); if (h && backs(h) && (!hit || backs(h) > backs(hit))) hit = h; } } }
+  if (!hit) return { miss: true };
+  const imgs = idx.images[hit.id] || [];
+  for (const im of [...pickImages(imgs, 'Box - Back'), ...pickImages(imgs, 'Box - Back - Reconstructed')]) {
+    const dest = dest0 + extOf(im.file).replace('.jpeg', '.jpg');
+    try { if (await download(LB_IMG + encodeURI(im.file), dest)) return { file: dest, name: hit.name || hit.n || '' }; } catch (e) { log('PC back', e.message); } }
+  return { miss: true };
+}
+module.exports = { pcBack, _setIndex: x => { lbOverride = x; }, LAUNCHBOX, LIBRETRO, init, matchTitle, matchName, lookupNames, sgMatch, setSpineCutter, setCartMaker, makeCart, CART_SYS, discId, downloadCovers, coverage, cancel, pause, isPaused, isImageBuf, HD_MIN, gameInfo, flushInfoCache, hasInfo, invalidateInfo, norm, launchboxMatch, libretroMatch, pickImages,
   // Art Studio (main/artstudio.js) reuses these rather than keeping its own copies
   candidates, libretroAll, libretroIndex, readyIndex, indexState, buildIndex, refreshIndex, cancelRefresh, indexInfo, edition, lbRegion, lrRegion, tdbRegion, download, downloadEx, sizeOf, artFile, isLow, placeArt, setOnPlaced, replacedFor, cutSpine, cutBack, canCut: () => !!spineCutter, pool, KINDS, ART_EXT, REPLACED };

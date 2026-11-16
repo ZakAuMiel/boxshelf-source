@@ -87,5 +87,6 @@ async function own(id, file) {
 const backId = id => String(id) + '.back';
 const back = id => cover(backId(id));
 const ownBack = (id, file) => own(backId(id), file);
+const backBase = id => { fs.mkdirSync(dir(), { recursive: true }); return path.join(dir(), safeId(backId(id))); }; // (fork) for a downloaded back (covers.pcBack adds the extension)
 
-module.exports = { init, cover, options, use, own, reset: id => clear(String(id)), back, ownBack, resetBack: id => clear(backId(id)) };
+module.exports = { init, cover, options, use, own, reset: id => clear(String(id)), back, ownBack, backBase, backDone: (id, file) => { const b = path.join(dir(), safeId(backId(id))); for (const e of EXTS) if (b + '.' + e !== file) { try { fs.unlinkSync(b + '.' + e); } catch {} } }, resetBack: id => clear(backId(id)) };

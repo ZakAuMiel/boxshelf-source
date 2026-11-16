@@ -732,6 +732,27 @@ async function launchRecomp(systemId, file) {
   coversForGame(); const def = CONSOLES.find(c => c.id === systemId);
   return launchPcGame({ ...g, title: r.title }, def ? def.name : 'Custom');
 }
+// (fork) The back of a PC game's box, found in LaunchBox's database by title (covers.pcBack), for every game on a PC
+// shelf with none yet. One at a time in the background; a title with nothing found is tried again after 30 days
+// (data\pc-covers\back-miss.json). Settings: cfg.pc.autoBacks = false turns it off; Box art → "Back from LaunchBox" asks anyway.
+let pcBackRun = null;
+const backMissFile = () => path.join(app.getPath('userData'), 'pc-covers', 'back-miss.json');
+function pcBacksSoon(shelves) {
+  if (pcBackRun || (cfg.pc && cfg.pc.autoBacks === false)) return;
+  const want = []; for (const s of shelves || []) if (s.kind === 'steam') for (const g of s.games || []) if (g && g.id && g.title && !(g.art && g.art.back)) want.push({ id: g.id, title: g.title });
+  if (!want.length) return;
+  pcBackRun = (async () => {
+    await new Promise(r => setTimeout(r, 8000)); // after the shelf is up
+    let miss = {}; try { miss = JSON.parse(fs.readFileSync(backMissFile(), 'utf8')) || {}; } catch {}
+    let got = 0;
+    for (const g of want) { if (pccovers.back(g.id)) continue; const k = g.id + '|' + g.title; if (miss[k] && Date.now() - miss[k] < 30 * 864e5) continue;
+      const r = await covers.pcBack(g.title, pccovers.backBase(g.id)).catch(e => ({ err: e.message }));
+      if (r.err) { log('PC backs:', r.err); break; }
+      if (r.file) { pccovers.backDone(g.id, r.file); artBump(r.file); got++; log('PC back for', g.title, 'from LaunchBox', r.name ? '(' + r.name + ')' : ''); } else miss[k] = Date.now(); }
+    try { fs.mkdirSync(path.dirname(backMissFile()), { recursive: true }); fs.writeFileSync(backMissFile(), JSON.stringify(miss)); } catch {}
+    if (got) pcCoverChanged();
+  })().catch(e => log('PC backs', e.message)).finally(() => { pcBackRun = null; });
+}
 async function buildLibrary() {
   const shelves = [];
   let recompOn = new Map(); try { recompOn = recompSync(); } catch (e) { log('Recomps:', e.message); }
@@ -801,6 +822,7 @@ async function buildLibrary() {
   for (const a of APPS) { const c = cfg.apps[a.id]; if (!c || !c.enabled || !c.path) continue; apps.push({ kind: 'app', id: 'app-' + a.id, appId: a.id, title: a.name, path: c.path, art: { icon: fileUrl(await iconQuick(c.path)) } }); }
   if (apps.length) shelves.push({ id: 'media', kind: 'apps', name: 'Media', games: apps });
   covers.flushInfoCache();
+  pcBacksSoon(shelves); // (fork) backs of the box for PC games, from LaunchBox, in the background
   return shelves;
 }
 
@@ -2020,6 +2042,10 @@ handle('pccover:ownBack', async ({ id }) => { // (fork) the back of the box
   const f = await pccovers.ownBack(id, r.filePaths[0]); artBump(f); pcCoverChanged(id); return { ok: true };
 });
 handle('pccover:resetBack', ({ id }) => { pcGameOf(id); pccovers.resetBack(id); pcCoverChanged(); return { ok: true }; });
+handle('pccover:autoBack', async ({ id }) => { const g = pcGameOf(id);
+  const r = await covers.pcBack(g.title, pccovers.backBase(id)); if (r.err) throw new Error(r.err);
+  if (!r.file) return { ok: false, miss: true };
+  pccovers.backDone(id, r.file); artBump(r.file); pcCoverChanged(id); return { ok: true, name: r.name || '' }; });
 handle('pccover:hasBack', ({ id }) => !!pccovers.back(id));
 handle('pccover:reset', ({ id }) => { pcGameOf(id); pccovers.reset(id); pcCoverChanged(); return { ok: true }; });
 // (beta.5) Details → Rename: a console game by its console and file (it must be one the scanner could find), a PC game by
