@@ -76,6 +76,9 @@ contextBridge.exposeInMainWorld('boxshelf', {
   rommSync: () => call('romm:sync'), rommForget: () => call('romm:forget'), rommCancel: () => call('romm:cancel'),
   pcCoverOwn: id => call('pccover:own', { id }),
   pcCoverReset: id => call('pccover:reset', { id }),
+  pcCoverOwnBack: id => call('pccover:ownBack', { id }), // (fork) the back of a PC game's box
+  pcCoverResetBack: id => call('pccover:resetBack', { id }),
+  pcCoverHasBack: id => call('pccover:hasBack', { id }),
   pcCoverMissing: () => call('pccover:missing'), // (beta.9) custom games with no cover chosen yet
   renameGame: o => call('game:rename', o), // (beta.5) { systemId, file } or { id }, and title ('' = back to the file's name)
   themes: () => call('themes:list'),

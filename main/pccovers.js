@@ -82,4 +82,10 @@ async function own(id, file) {
   return save(String(id), await fs.promises.readFile(file), ext);
 }
 
-module.exports = { init, cover, options, use, own, reset: id => clear(String(id)) };
+// (fork) the back of a PC game's box: a picture of your own, kept as data\pc-covers\<game id>.back.<ext> (cover(id) never
+// sees it: a different name). With none, the shelf keeps its made-up back
+const backId = id => String(id) + '.back';
+const back = id => cover(backId(id));
+const ownBack = (id, file) => own(backId(id), file);
+
+module.exports = { init, cover, options, use, own, reset: id => clear(String(id)), back, ownBack, resetBack: id => clear(backId(id)) };

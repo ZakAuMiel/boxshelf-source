@@ -1523,7 +1523,7 @@ async function pcCoverOpen(g,term,batch){if(kidBlock())return;
   if(!cp||cp.g!==g)return;
   // (beta.9) Search by name works without a key too (Steam's store answers it); with no SteamGridDB key, a highlighted slot
   // after the covers says what one adds and opens its page (the picker comes back when Settings closes)
-  const items=[...(batch?[{act:"skip",icon:"→",label:"Skip this game",sub:batch.i+1<batch.list.length?"On to the next":"The last one"}]:[]),...(!batch?[{act:"search",icon:"⌕",label:"Search by name…",sub:term?`Now: ${term}`:"Another name to look up"}]:[]),{act:"own",icon:"+",label:"A picture of yours",sub:"JPG, PNG or WebP"},...(r.current?[{act:"reset",icon:"↺",label:"Automatic cover",sub:"Go back to it"}]:[]),
+  const items=[...(batch?[{act:"skip",icon:"→",label:"Skip this game",sub:batch.i+1<batch.list.length?"On to the next":"The last one"}]:[]),...(!batch?[{act:"search",icon:"⌕",label:"Search by name…",sub:term?`Now: ${term}`:"Another name to look up"}]:[]),{act:"own",icon:"+",label:"A picture of yours",sub:"JPG, PNG or WebP"},...(r.current?[{act:"reset",icon:"↺",label:"Automatic cover",sub:"Go back to it"}]:[]),...(!batch&&api.pcCoverOwnBack?[{act:"ownBack",icon:"⇆",label:"Back of the box…",sub:"A picture of yours"},...(g.art&&g.art.back?[{act:"resetBack",icon:"↺",label:"Made-up back",sub:"Remove your back"}]:[])]:[]),
     ...(r.list||[]).map(x=>({key:x.key,thumb:x.thumb,label:x.label,sub:x.sub||""})),
     ...(!r.sgdb&&!batch&&window.Setup&&Setup.open?[{act:"sgdb",icon:"",acct:true,label:"Add SteamGridDB",sub:"Dozens more covers · free key"}]:[])];
   const L=r.list||[],n=L.filter(x=>x.source==="steamgriddb").length,ns=L.filter(x=>x.source==="steamstore"||x.source==="steam").length;
@@ -1546,6 +1546,8 @@ async function cpChoose(){if(!cp||cp.busy)return;const it=cp.items[cp.i],g=cp.g,
   try{
     if(it.act==="skip"){next();cpDone();play_("tick",{dir:1});return}
     if(it.act==="own"){const r=await api.pcCoverOwn(g.id);if(r&&r.ok){if(B)B.done++;next();cpDone();play_("toast");if(!B)toast(`New cover for ${g.title}`)}else if(cp)cp.busy=false;return}
+    if(it.act==="ownBack"){const r=await api.pcCoverOwnBack(g.id);if(r&&r.ok){cpDone();play_("toast");toast(`New back for ${g.title}. Flip the case to see it`)}else if(cp)cp.busy=false;return} /* (fork) */
+    if(it.act==="resetBack"){await api.pcCoverResetBack(g.id);cpDone();play_("toast");toast(`${g.title} has its made-up back again`);return}
     if(it.act==="search"){cpDone();play_("panel");Setup.open({page:"coversearch",id:g.id,title:g.title,term:term||""});return}
     if(it.act==="sgdb"){cpDone();play_("panel");cpReturn={id:g.id,term:term||""};Setup.open({page:"steamgriddb"});return} // (beta.9) the key's page; the picker again when Settings closes
     if(it.act==="reset"){await api.pcCoverReset(g.id);next();cpDone();play_("toast");if(!B)toast(`${g.title} is back on its automatic cover`);return}
