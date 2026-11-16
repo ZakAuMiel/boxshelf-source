@@ -1464,7 +1464,7 @@ function closeDetails(silent){if(mode!=="details")return;dMenuClose(true);ASND.o
 // (the shelf's emulator, as before), or null for Back.
 let bp=null,nextBuild=null;
 // (Settings → Switch 2 → Build set to one build (askBuild false): Play starts in it, or in the game's own Details choice)
-const needsBuild=(g,s)=>!!(g&&s&&g.kind==="rom"&&s.id==="sw2"&&api.sw2Builds&&!(nextBuild&&nextBuild.id===g.id)&&!(cfgInfo&&((cfgInfo.config.systems||{}).sw2||{}).askBuild===false));
+const needsBuild=(g,s)=>!!(g&&s&&g.kind==="rom"&&g.ext!=="recomp"&&s.id==="sw2"&&api.sw2Builds&&!(nextBuild&&nextBuild.id===g.id)&&!(cfgInfo&&((cfgInfo.config.systems||{}).sw2||{}).askBuild===false));
 async function pickBuild(g){
   let r=null;try{r=await api.sw2Builds(g.file)}catch{}
   if(!r||!r.builds||!r.builds.length)return "";
@@ -1605,7 +1605,7 @@ function play(){
   const s=cur().col||shelfFor(g)!==cur()?(g._sh||shelfFor(g)):cur(); // (beta.10) on a collection shelf: the game's own console (build picker, boot video and slide, its name). (beta.14) A game added to another shelf (+ Add to…) too
   // Switch 2: which build first (before the boot slide starts); Back on the list leaves you on the shelf
   if(needsBuild(g,s)){pickBuild(g).then(exe=>{if(exe==null)return;nextBuild={id:g.id,exe};play()});return}
-  if(g.kind==="rom"&&biosWarn(s))return; // (beta.14) a BIOS this console can't start without is missing: a card first (Play anyway goes on)
+  if(g.kind==="rom"&&g.ext!=="recomp"&&biosWarn(s))return; /* (fork) a recomp runs its own program: no emulator, no BIOS */ // (beta.14) a BIOS this console can't start without is missing: a card first (Play anyway goes on)
   const boot=g.kind==="rom"&&s.bootOnLaunch&&!s.useIpl,vid=boot&&!!(themes[s.id]||{}).boot;
   // your boot video (Customize) plays first when this console has one and its switch is on; otherwise the boot slide
   // covers the emulator starting (it stays until the game's window is up, then fades to black), and with the slide off
@@ -2235,7 +2235,7 @@ async function launchNow(g,underInsert){padAtSteam=false; /* (beta.12) only the 
       clearTimeout(launchTimer);launchTimer=setTimeout(()=>note(["Running through Steam. Press ",{b:btnWord("back")}," or ",{b:"Esc"}," to return to the shelf."]),1800);return}
     else if(g.kind==="app"){showLaunch("Opening app",g.title,quote(g.path));await wait(650);const r=await api.launchApp(g.appId,g.link);sendHomeMeta(g);if(r&&r.cover){const bar=$("launch").querySelector(".l-bar i");bar.style.animation="none";void bar.offsetWidth;bar.style.animation=`load ${Math.min(r.cover,8)}s cubic-bezier(.5,0,.2,1) forwards`}}
     else if(g.kind==="emulator"){showLaunch(`Opening ${s.emulatorName}`,"Emulator settings",quote(s.emulator));await wait(650);await api.launchEmulator(s.id)}
-    else{showLaunch(`Starting ${s.emulatorName}`,g.title,`${quote(emu||s.emulator)} ${argsPreview(s.gameArgs,g.file)}`);await wait(ANDROID?(underInsert?Math.max(260,insertSeatAt-performance.now()):260):underInsert?Math.max(650,insertSeatAt-performance.now()):650); /* (beta.12, Android: the emulator covers the screen as it starts, so the slide isn't waited on: about 0.4 s sooner into every game) */launchCloud=!!(g.romm&&g.romm.cloud);let r;try{r=await (emu?api.launchGame(s.id,g.file,emu):api.launchGame(s.id,g.file))}finally{launchCloud=false}sendHomeMeta(g); /* (beta.12) launchCloud: a RomM game downloading first, B stops it */if(underInsert){clearTimeout(insertT);insProgress(r&&r.cover)} /* the insert screen stays, with a progress line, until the game's window is up */if(r&&r.cover){const bar=$("launch").querySelector(".l-bar i");bar.style.animation="none";void bar.offsetWidth;bar.style.animation=`load ${r.cover}s linear forwards`}}
+    else{if(g.ext==="recomp")showLaunch("Starting",g.title,g.title);else showLaunch(`Starting ${s.emulatorName}`,g.title,`${quote(emu||s.emulator)} ${argsPreview(s.gameArgs,g.file)}`); /* (fork) a recomp: its own program */await wait(ANDROID?(underInsert?Math.max(260,insertSeatAt-performance.now()):260):underInsert?Math.max(650,insertSeatAt-performance.now()):650); /* (beta.12, Android: the emulator covers the screen as it starts, so the slide isn't waited on: about 0.4 s sooner into every game) */launchCloud=!!(g.romm&&g.romm.cloud);let r;try{r=await (emu?api.launchGame(s.id,g.file,emu):api.launchGame(s.id,g.file))}finally{launchCloud=false}sendHomeMeta(g); /* (beta.12) launchCloud: a RomM game downloading first, B stops it */if(underInsert){clearTimeout(insertT);insProgress(r&&r.cover)} /* the insert screen stays, with a progress line, until the game's window is up */if(r&&r.cover){const bar=$("launch").querySelector(".l-bar i");bar.style.animation="none";void bar.offsetWidth;bar.style.animation=`load ${r.cover}s linear forwards`}}
     if(runningKind==="error")return;
     /* (beta.12) Linux / Steam Deck has no Home menu (the Steam button is Steam's): it says the hold that closes the game (main/linuxpad.js) */
     clearTimeout(launchTimer);launchTimer=setTimeout(()=>note(window.bsPlatform&&bsPlatform.os==="linux"?`Playing · to come back here, hold ${padWord("view")} + ${padWord("menu")} for a moment`:cfgInfo&&cfgInfo.config.ui.homeMenu===false?"Playing · close the game to come back here":`Playing · press ${padWord("guide")} for the Home menu`),1800);

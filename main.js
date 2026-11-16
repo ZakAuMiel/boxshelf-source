@@ -19,7 +19,7 @@ paths.setAppRoot(linux.isLinux ? linux.appRoot(app.isPackaged, __dirname) : app.
 const config = require('./main/config');
 const { CONSOLES, APPS } = require('./main/systems');
 const { detectAll, detectSystem, findSteam } = require('./main/detect');
-const { scanSystem: scanFolders, scanSystemAsync: scanFoldersAsync, forget: scanForget, setLog: scanSetLog } = require('./main/scanner'); // (beta.9: scanForget clears the scanner's kept scans)
+const { scanSystem: scanFolders, scanSystemAsync: scanFoldersAsync, forget: scanForget, setLog: scanSetLog, recompInfo } = require('./main/scanner'); // (beta.9: scanForget clears the scanner's kept scans)
 const arcadenames = require('./main/arcadenames');
 // (beta.5) a game's own name (Details → Rename: cfg.games["<console>:<file>"].title) replaces the scanned one wherever main
 // reads games: the shelf, box art and manual lookups, matching. fileTitle keeps the scanned one. Copies, never the
@@ -686,8 +686,55 @@ function iconQuick(exe) {
 // (beta.7) store games: real store titles, so their covers come from the Steam app with the same name (not Quiver's or
 // hand-added programs: those often share a name with an unrelated game)
 const STORE_SRC = new Set(['epic', 'gog', 'ubisoft', 'ea', 'xbox']);
+// ---------- (fork) recomps on a console's shelf, as that console's games ----------
+// A game added by hand (Settings → Custom games) whose shelf is a console's gets a small stand-in file, "<title>.recomp"
+// (JSON: its program, options and id), in Boxshelf's own folder Recomps\<console>. That folder is one of the console's
+// games folders, so the stand-in is a game of that console like any other: its case, the Art Studio (front, back, spine,
+// disc, found by title), manuals and Inspect. Play starts the game's own program (launchRecomp), never the emulator. The
+// folder is added to the console's games folders (and the console turned on) while it holds a stand-in, and taken off again
+// when it's empty; stand-ins whose game left that shelf are removed. cfg.pc.recompBoxes === false: the old way (front only)
+const recompRoot = () => path.join(app.getPath('userData'), 'Recomps');
+const recompName = t => (String(t || 'Game').replace(/[<>:"/\\|?*\x00-\x1f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 100) || 'Game') + '.recomp';
+function recompWanted() { // console id → [{ g, name }]
+  const want = new Map(); if ((cfg.pc || {}).recompBoxes === false) return want;
+  const ids = new Set(CONSOLES.map(c => c.id));
+  let list = []; try { list = pcgames.customGames((cfg.pc || {}).custom); } catch {}
+  for (const g of list) { if (!g.shelf || !ids.has(g.shelf)) continue; const t = ownTitle(g.id) || g.title; if (!want.has(g.shelf)) want.set(g.shelf, []); want.get(g.shelf).push({ g, title: t, name: recompName(t) }); }
+  return want;
+}
+function recompSync() {
+  const want = recompWanted(), root = recompRoot(); let changed = false, next = null;
+  const ids = new Set([...want.keys(), ...(() => { try { return fs.readdirSync(root); } catch { return []; } })()]);
+  for (const id of ids) {
+    if (!CONSOLES.some(c => c.id === id)) continue;
+    const dir = path.join(root, id), list = want.get(id) || [], keep = new Set();
+    if (list.length) try { fs.mkdirSync(dir, { recursive: true }); } catch (e) { log('Recomps: no folder', dir, e.message); continue; }
+    for (const { g, title, name } of list) { if (keep.has(name.toLowerCase())) continue; keep.add(name.toLowerCase());
+      const f = path.join(dir, name), body = JSON.stringify({ id: g.id, title, exe: g.exe, args: g.args || '' }, null, 1);
+      let old = null; try { old = fs.readFileSync(f, 'utf8'); } catch {}
+      if (old !== body) { try { fs.writeFileSync(f, body); changed = true; } catch (e) { log('Recomps: not written', f, e.message); } } }
+    let names = []; try { names = fs.readdirSync(dir); } catch {}
+    for (const n of names) if (/\.recomp$/i.test(n) && !keep.has(n.toLowerCase())) { try { fs.unlinkSync(path.join(dir, n)); changed = true; } catch {} }
+    // the folder among the console's games folders while it holds something (and the console on), off again when empty
+    const base = next || cfg, sc = base.systems[id]; if (!sc) continue;
+    const dirs = sc.romDirs || [], has = dirs.some(d => path.resolve(d).toLowerCase() === dir.toLowerCase());
+    if (keep.size && (!has || !sc.enabled)) next = { ...base, systems: { ...base.systems, [id]: { ...sc, enabled: true, romDirs: has ? dirs : [...dirs, dir] } } };
+    else if (!keep.size && has) next = { ...base, systems: { ...base.systems, [id]: { ...sc, romDirs: dirs.filter(d => path.resolve(d).toLowerCase() !== dir.toLowerCase()) } } };
+  }
+  if (next) { cfg = persistCfg(config.normalize(next)); scanCfg = null; changed = true; log('Recomps: console games folders updated'); }
+  if (changed) scanForget();
+  return want;
+}
+async function launchRecomp(systemId, file) {
+  const r = recompInfo(file); if (!r) throw new Error("That game's details couldn't be read. Remove it in Settings → Custom games and add it again.");
+  const own = r.id && pcgames.byId(r.id), g = own && own.exe ? own : { id: r.id || 'recomp:' + file, source: 'custom', title: r.title, exe: r.exe, args: r.args };
+  if (!paths.isFile(g.exe)) throw new Error(`${r.title} isn't at ${g.exe} any more. If Quiver moved it, choose its program again in Settings → Custom games.`);
+  coversForGame(); const def = CONSOLES.find(c => c.id === systemId);
+  return launchPcGame({ ...g, title: r.title }, def ? def.name : 'Custom');
+}
 async function buildLibrary() {
   const shelves = [];
+  let recompOn = new Map(); try { recompOn = recompSync(); } catch (e) { log('Recomps:', e.message); }
   // (beta.12) RomM: the saved copy of its library for this build, and one background sync a little after the first
   if (rommOn() && !rommLib) await rommLoad();
   if (rommOn() && !rommSyncedOnce) { rommSyncedOnce = true; rommSync(20000); }
@@ -744,7 +791,8 @@ async function buildLibrary() {
     return { kind: 'steam', source: g.source, id: g.id, title: g.title, ...(sid ? { info: steamart.gameInfo(sid) } : {}), art: { front: fileUrl(pccovers.cover(g.id) || l.front), hero: fileUrl(l.hero), icon: g.icon || undefined } }; };
   // (beta.10) a game added by hand can be moved to the PC shelf (Settings → Custom games → the game → Shelf); (beta.14) or
   // to any console's shelf (one is made for it if that console has none); an id that isn't a console stays on Custom
-  const { toPc, onCustom } = pcgames.placeCustom(shelves, mine, CONSOLES, pcGame);
+  const recompIds = new Set([...recompOn.values()].flat().map(x => x.g.id));
+  const { toPc, onCustom } = pcgames.placeCustom(shelves, mine.filter(g => !recompIds.has(g.id)), CONSOLES, pcGame); // (fork) recomps on a console shelf come as that console's games (recompSync)
   if (epic.length || toPc.length) pcShelf = pcShelf.concat([...epic, ...toPc].map(pcGame)).sort((a, b) => String(a.title).localeCompare(String(b.title), undefined, { sensitivity: 'base' }));
   if (pcShelf.length) shelves.push({ id: 'pc', kind: 'steam', name: 'PC', games: pcShelf });
   if (onCustom.length) shelves.push({ id: 'custom', kind: 'steam', name: 'Custom', games: onCustom.map(pcGame).sort((a, b) => String(a.title).localeCompare(String(b.title), undefined, { sensitivity: 'base' })) });
@@ -1627,6 +1675,7 @@ handle('sw2:builds', async ({ file }) => {
   return { builds: list, nup, first: first ? first.exe : '' };
 });
 handle('launch:game', async ({ systemId, file, emulator }) => {
+  if (/\.recomp$/i.test(String(file || ''))) return launchRecomp(systemId, file); // (fork) a recomp on a console shelf: its own program, no emulator
   let { sc } = gameFile(systemId, file);
   // Switch 2: the build chosen at Play (only one of the listed builds), remembered as this game's first offer next time
   if (systemId === 'sw2' && emulator) {
@@ -1920,6 +1969,10 @@ handle('moonlight:refresh', async () => { const r = await moonlightRefresh(true)
 handle('moonlight:wake', async () => ({ ok: await moonlight.wake(cfg.moonlight.mac) }));
 handle('launch:pc', async ({ id }) => { coversForGame(); /* (beta.14) */
   const g = pcgames.byId(id); if (!g) throw new Error("That game isn't on the shelf any more. The shelf is refreshing; try again in a moment.");
+  return launchPcGame(g);
+});
+// (fork) the program start shared by PC games and recomps on a console shelf (launchRecomp)
+async function launchPcGame(g, systemName) {
   // (beta.12) Seamless play on: a store game (Epic, Ubisoft, EA, Xbox) is still started through its store, and watched
   if (seamless.on() && ((g.uri && /^(com\.epicgames\.launcher|uplay|origin2):\/\//i.test(g.uri)) || (g.shellApp && /^[\w.-]+_[a-z0-9]+![\w.-]+$/i.test(g.shellApp))))
     return seamless.launchWatched({ kind: g.source, id: g.id, dir: g.dir || '', exe: g.exe || '', title: g.title, systemName: STORE_NAME[g.source] || 'PC',
@@ -1934,11 +1987,11 @@ handle('launch:pc', async ({ id }) => { coversForGame(); /* (beta.14) */
   if (g.source === 'moonlight' && cfg.moonlight.mac) { const ok = await moonlight.wake(cfg.moonlight.mac); log('Streaming: wake-on-LAN', ok ? 'sent' : 'not sent'); } // (fork) Moonlight then waits for the host to show up
   launching = true; try { await taskbarHide(); } finally { launching = false; } // (beta.6)
   let r; try { r = launcher.launchApp(g.exe, onExit, launcher.buildArgs(g.args || '', '')); } catch (e) { taskbarShow('the game did not start'); throw e; } runKind = 'app'; pendingPower = null; launcher.setRunningName(g.title); log('PC launch:', g.source, g.title);
-  if (cfg.ui.homeMenu !== false) homemenu.begin({ systemId: 'pc', exe: g.exe, systemName: g.source === 'quiver' ? 'Quiver' : g.source === 'gog' ? 'GOG' : g.source === 'moonlight' ? 'Streaming' : 'Custom', title: g.title, hotkeys: {} });
+  if (cfg.ui.homeMenu !== false) homemenu.begin({ systemId: 'pc', exe: g.exe, systemName: systemName || (g.source === 'quiver' ? 'Quiver' : g.source === 'gog' ? 'GOG' : g.source === 'moonlight' ? 'Streaming' : 'Custom'), title: g.title, hotkeys: {} });
   if (seamless.on()) historyTrack(g.id); // (beta.12, Seamless play: its playtime too)
   watchPad({ mouse: false, appPid: r.pid, fullscreenKey: null, home: true });
   return { ...r, cover: coverWhileStarting(10) };
-});
+}
 // (beta.5) a PC game's cover picker (main/pccovers.js): the page names the game by id and an option by key only
 const pcLookup = id => { id = String(id || ''); const m = /^steam-(\d{1,10})$/.exec(id); if (m) return { id, appid: m[1], title: '' }; const g = pcgames.byId(id); return g ? { id, title: g.title } : null; };
 const pcGameOf = id => { const g = pcLookup(id); if (!g) throw new Error("That game isn't on the shelf any more."); return g; };

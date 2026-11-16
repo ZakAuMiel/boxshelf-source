@@ -17,6 +17,9 @@ const Arcade = require('./arcadenames');
 // BIOS sets that sit beside the games, hidden even before the arcade list has arrived (main/arcadenames.js knows them all)
 const ARCADE_BIOS = new Set(['neogeo', 'pgm', 'skns', 'stvbios', 'decocass', 'cpzn1', 'cpzn2', 'taitofx1', 'konamigx', 'nss', 'naomi', 'awbios', 'hod2bios', 'f355bios', 'airlbios', 'megaplay', 'megatech', 'playch10', 'qsound', 'neocdz', 'isgsm', 'nmk004', 'ym2608', 'bubsys', 'cchip', 'sp-cpu']);
 function cleanTitle(file) { return Titles.cleanTitle(path.basename(file)); }
+// (fork) a recomp stand-in: { title, exe, args, id } (JSON), or null when it can't be read
+function recompInfo(f) { try { const j = JSON.parse(fs.readFileSync(f, 'utf8')); if (!j || typeof j.exe !== 'string' || !j.exe) return null;
+  return { title: String(j.title || path.basename(f, '.recomp')).trim().slice(0, 120) || 'Game', exe: j.exe, args: typeof j.args === 'string' ? j.args : '', id: String(j.id || '') }; } catch { return null; } }
 
 // (beta.10) the walk and the scan ask for each folder listing and file check (yield [op, path]) and their caller answers:
 // at once (scanSystem) or through fs.promises (scanSystemAsync: a games folder on a NAS never holds the main process up)
@@ -264,7 +267,7 @@ function* scanFilesG(sysDef, sysCfg) {
   // consoles whose games are folders (PS3 <group>\<game>\PS3_GAME\USRDIR, Xbox 360 Content\<profile>\<title id>\00007000).
   // Games' own data folders are never walked (USRDIR, romfs, an extracted 360 game, a package's .data)
   const deep = !!(sysDef.gameFile || sysDef.deep || sysDef.id === 'x360'), DEPTH = deep ? 6 : 4;
-  const exts = sysDef.id === 'x360' ? [...sysDef.extensions, 'stfs'] : sysDef.extensions; // ('stfs': Games on Demand / Arcade packages, which have no extension)
+  const exts = [...(sysDef.id === 'x360' ? [...sysDef.extensions, 'stfs'] : sysDef.extensions), 'recomp']; // ('stfs': Games on Demand / Arcade packages, which have no extension; (fork) 'recomp': a recomp's stand-in, recompInfo below)
   // the bare words update / dlc / patch / pass mean an update package only on the Switch shelves (shared/titles.js)
   const ct = f => Titles.cleanTitle(path.basename(f), { updateWords: sysDef.id === 'sw' || sysDef.id === 'sw2' });
   for (const dir of sysCfg.romDirs || []) yield* walkG(dir, exts, DEPTH, files, sysDef.gameFile);
@@ -286,6 +289,11 @@ function* scanFilesG(sysDef, sysCfg) {
   const xexDirs = new Set(files.filter(f => path.basename(f).toLowerCase() === 'default.xex').map(f => path.dirname(f)));
   for (const f of files) {
     let fg = null;
+    // (fork) a recompiled game added by hand and put on this console's shelf: its stand-in file (main.js recompSync) is a
+    // game of this console like any other (case, Art Studio, manuals, Inspect), titled as the stand-in says
+    if (/\.recomp$/i.test(f)) { const r = recompInfo(f); if (!r) continue; const st = yield ['stat', f];
+      byTitle.set('recomp|' + f.toLowerCase(), { kind: 'rom', id: sysDef.id + ':' + f, title: r.title, region: '', disc: 0, file: f, ext: 'recomp', sizeBytes: 0, added: st ? Math.round(st.birthtimeMs || st.mtimeMs) || 0 : 0,
+        art: null, _art: { title: r.title, fg: null }, discs: [f], recomp: true }); continue; }
     const isXex = /\.xex$/i.test(f), isDefault = isXex && path.basename(f).toLowerCase() === 'default.xex';
     if (isXex && !isDefault && xexDirs.has(path.dirname(f))) continue;
     const asFolder = sysDef.gameFile && path.basename(f).toLowerCase() === sysDef.gameFile;
@@ -380,4 +388,4 @@ function* scanFilesG(sysDef, sysCfg) {
   return [...byTitle.values()].sort((a, b) => COLL.compare(a.title, b.title)); // (beta.10: one collator, the same order as localeCompare with these options)
 }
 
-module.exports = { scanSystem, scanSystemAsync, forget, cleanTitle, SKIP_NAME, setLog, ps3Region }; // (SKIP_NAME for the device test; forget: main.js clears the kept scans)
+module.exports = { recompInfo, scanSystem, scanSystemAsync, forget, cleanTitle, SKIP_NAME, setLog, ps3Region }; // (SKIP_NAME for the device test; forget: main.js clears the kept scans)
