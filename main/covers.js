@@ -868,6 +868,18 @@ async function pcBack(title, dest0) {
     try { if (await download(LB_IMG + encodeURI(im.file), dest)) return { file: dest, name: hit.name || hit.n || '' }; } catch (e) { log('PC back', e.message); } }
   return { miss: true };
 }
-module.exports = { pcBack, _setIndex: x => { lbOverride = x; }, LAUNCHBOX, LIBRETRO, init, matchTitle, matchName, lookupNames, sgMatch, setSpineCutter, setCartMaker, makeCart, CART_SYS, discId, downloadCovers, coverage, cancel, pause, isPaused, isImageBuf, HD_MIN, gameInfo, flushInfoCache, hasInfo, invalidateInfo, norm, launchboxMatch, libretroMatch, pickImages,
+// (fork) which console a game of this title is on, by LaunchBox's database: { sys, name } (name: LaunchBox's own title),
+// null when no console has a game of exactly that name, undefined while the database isn't ready. prefer: a console to
+// look at first, with close calls allowed there ("Mario Kart World" for "kart" is the caller's hint, not guessed here)
+const DETECT_FIRST = ['sw2', 'sw'];
+function detectConsole(title, prefer) {
+  const idx = readyIndex(); if (!idx) return undefined; if (!title) return null;
+  const art = g => ((idx.images && idx.images[g.id]) || []).filter(i => /^(Box - |Disc$|Cart - )/.test(i.type)).length;
+  if (prefer && LAUNCHBOX[prefer]) { const l = idx.games[LAUNCHBOX[prefer]]; const h = l && matchName(l, title, art); if (h) return { sys: prefer, name: h.name }; }
+  const order = [...DETECT_FIRST, ...Object.keys(LAUNCHBOX).filter(k => !DETECT_FIRST.includes(k))];
+  for (const t of lookupNames(title)) for (const sys of order) { const l = idx.games[LAUNCHBOX[sys]]; const h = l && matchTitle(l, t, art, true); if (h) return { sys, name: h.name }; }
+  return null;
+}
+module.exports = { pcBack, detectConsole, readyIndex, launchboxIndex, _setIndex: x => { lbOverride = x; }, LAUNCHBOX, LIBRETRO, init, matchTitle, matchName, lookupNames, sgMatch, setSpineCutter, setCartMaker, makeCart, CART_SYS, discId, downloadCovers, coverage, cancel, pause, isPaused, isImageBuf, HD_MIN, gameInfo, flushInfoCache, hasInfo, invalidateInfo, norm, launchboxMatch, libretroMatch, pickImages,
   // Art Studio (main/artstudio.js) reuses these rather than keeping its own copies
   candidates, libretroAll, libretroIndex, readyIndex, indexState, buildIndex, refreshIndex, cancelRefresh, indexInfo, edition, lbRegion, lrRegion, tdbRegion, download, downloadEx, sizeOf, artFile, isLow, placeArt, setOnPlaced, replacedFor, cutSpine, cutBack, canCut: () => !!spineCutter, pool, KINDS, ART_EXT, REPLACED };

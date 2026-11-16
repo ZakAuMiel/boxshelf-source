@@ -695,11 +695,49 @@ const STORE_SRC = new Set(['epic', 'gog', 'ubisoft', 'ea', 'xbox']);
 // when it's empty; stand-ins whose game left that shelf are removed. cfg.pc.recompBoxes === false: the old way (front only)
 const recompRoot = () => path.join(app.getPath('userData'), 'Recomps');
 const recompName = t => (String(t || 'Game').replace(/[<>:"/\\|?*\x00-\x1f]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 100) || 'Game') + '.recomp';
-function recompWanted() { // console id → [{ g, name }]
-  const want = new Map(); if ((cfg.pc || {}).recompBoxes === false) return want;
-  const ids = new Set(CONSOLES.map(c => c.id));
-  let list = []; try { list = pcgames.customGames((cfg.pc || {}).custom); } catch {}
-  for (const g of list) { if (!g.shelf || !ids.has(g.shelf)) continue; const t = ownTitle(g.id) || g.title; if (!want.has(g.shelf)) want.set(g.shelf, []); want.get(g.shelf).push({ g, title: t, name: recompName(t) }); }
+// (fork) Recomps and ports are put on their console's shelf by themselves: a game added by hand with no shelf chosen, and
+// every Quiver game, is looked up by title in LaunchBox's database (covers.detectConsole). Quiver's recomps are often
+// named after the project ("kart", "Longshot"), so a few known ones get the game's own name first (RECOMP_HINTS). Found:
+// it gets a stand-in on that console's shelf under the official title (so the Art Studio and manuals find it). The
+// answers are kept in data\recomp-detect.json (nothing found: asked again after 30 days). A shelf chosen by hand wins;
+// cfg.pc.recompDetect = false turns the lookup off.
+const RECOMP_HINTS = [
+  [/\b(mkw|kart)\b/i, 'Mario Kart World', 'sw2'],
+  [/long ?shot|hook ?shot|ocarina/i, 'The Legend of Zelda: Ocarina of Time', 'sw2'],
+  [/\btotk\b|tears of the kingdom/i, 'The Legend of Zelda: Tears of the Kingdom', 'sw'],
+  [/\bbotw\b|breath of the wild/i, 'The Legend of Zelda: Breath of the Wild', 'sw'],
+  [/bananza/i, 'Donkey Kong Bananza', 'sw2'],
+  [/pokopia/i, 'Pokémon Pokopia', 'sw2'],
+];
+const detectFile = () => path.join(app.getPath('userData'), 'recomp-detect.json');
+let detectMemo = null, detectWaiting = false;
+function recompDetect(g) {
+  if (!detectMemo) { try { detectMemo = JSON.parse(fs.readFileSync(detectFile(), 'utf8')) || {}; } catch { detectMemo = {}; } }
+  const k = g.id + '|' + g.title, had = detectMemo[k];
+  if (had && (had.sys || Date.now() - (had.at || 0) < 30 * 864e5)) return had.sys ? had : null;
+  const hint = RECOMP_HINTS.find(([re]) => re.test(g.title) || re.test(String(g.key || '')) || re.test(path.basename(String(g.exe || ''))));
+  let r = covers.detectConsole(hint ? hint[1] : g.title, hint ? hint[2] : undefined);
+  if (r === undefined) { // the database isn't ready: built (or read) in the background, then the shelves again
+    if (!detectWaiting) { detectWaiting = true; covers.launchboxIndex().then(() => { scanCfg = null; scanForget(); if (alive()) win.webContents.send('library:changed', { recomp: 1 }); }, e => log('Recomps: LaunchBox', e.message)).finally(() => { detectWaiting = false; }); }
+    return null; }
+  if (!r && hint && covers.detectConsole(hint[1])) r = covers.detectConsole(hint[1]);
+  detectMemo[k] = r ? { sys: r.sys, name: r.name } : { at: Date.now() };
+  try { fs.writeFileSync(detectFile(), JSON.stringify(detectMemo, null, 1)); } catch {}
+  if (r) log('Recomps:', g.title, '→', r.sys, '(' + r.name + ')');
+  return r;
+}
+function recompWanted() { // console id → [{ g, title, name }]
+  const want = new Map(), pc = cfg.pc || {}; if (pc.recompBoxes === false) return want;
+  const ids = new Set(CONSOLES.map(c => c.id)), add = (sys, g, t) => { if (!want.has(sys)) want.set(sys, []); want.get(sys).push({ g, title: t, name: recompName(t) }); };
+  let list = []; try { list = pcgames.customGames(pc.custom); } catch {}
+  if (pc.quiver !== false) try { list = list.concat(pcgames.quiverGames(pc.quiverPath)); } catch {}
+  for (const g of list) {
+    if (g.shelf === 'pc') continue;
+    if (g.shelf && ids.has(g.shelf)) { add(g.shelf, g, ownTitle(g.id) || g.title); continue; }
+    if (pc.recompDetect === false) continue;
+    let r = null; try { r = recompDetect(g); } catch (e) { log('Recomps: lookup', e.message); }
+    if (r && ids.has(r.sys)) add(r.sys, g, ownTitle(g.id) || r.name || g.title);
+  }
   return want;
 }
 function recompSync() {
